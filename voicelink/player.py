@@ -137,6 +137,7 @@ class Player(VoiceProtocol):
 
         self.controller: Union[Message, PartialMessage] = None
         self._updating: bool = False
+        self._controller_auto_task = None  # changed: initialise but don't start task here
 
         self.pause_votes = set()
         self.resume_votes = set()
@@ -428,6 +429,10 @@ class Player(VoiceProtocol):
                     "$push": {"history": {"$each": [track.track_id], "$slice": -25}}
                 }))
 
+        # changed: lazily start auto-update task once there is playback context
+        if not getattr(self, "_controller_auto_task", None) or self._controller_auto_task.cancelled():
+            self._controller_auto_task = self._bot.loop.create_task(self._auto_update_controller())
+
         await self.invoke_controller()
         await self.update_voice_status()
 
@@ -438,6 +443,24 @@ class Player(VoiceProtocol):
                 "trackId": track.track_id if track else None,
                 "isPaused": self._paused
             })
+
+    async def _auto_update_controller(self):
+        """Periodically refreshes the music controller message so the queue and controls stay up to date."""
+        # Small initial delay to allow the player to fully initialise
+        await sleep(10)
+        while True:
+            try:
+                if self.is_connected and self.settings.get("controller", True) and self.channel:
+                    # Only bother if there is something meaningful to show
+                    if self.current or self.queue.tracks():  # changed: avoid len(self.queue)
+                        await self.invoke_controller()
+            except Exception as e:
+                if self._logger:
+                    self._logger.error(
+                        f"Failed to auto-update music controller in {self.guild.name}({self.guild.id})",
+                        exc_info=e
+                    )
+            await sleep(10)
 
     async def invoke_controller(self):
         """Sends or updates the music controller message in the designated channel."""
@@ -484,7 +507,12 @@ class Player(VoiceProtocol):
     async def is_position_fresh(self):
         """Checks if the current controller message is among the most recent messages."""
         try:
-            async for message in self.context.channel.history(limit=5):
+            # Prefer the controller's own channel; fall back to context.channel if needed
+            channel = getattr(self.controller, "channel", None) or getattr(self.context, "channel", None)
+            if not channel:
+                return False
+
+            async for message in channel.history(limit=5):
                 if message.id == self.controller.id:
                     return True
         except:
@@ -494,6 +522,13 @@ class Player(VoiceProtocol):
     
     async def teardown(self):
         """Cleans up the player and associated resources."""
+        try:
+            task = getattr(self, "_controller_auto_task", None)
+            if task:
+                task.cancel()
+        except:
+            pass
+
         try:
             await func.update_settings(self.guild.id, {"$set": {
                 "last_active": (timeNow := round(time.time())), 
