@@ -583,20 +583,14 @@ class Basic(commands.Cog):
     @commands.hybrid_command(name="leave", aliases=get_aliases("leave"))
     @commands.dynamic_cooldown(cooldown_check, commands.BucketType.guild)
     async def leave(self, ctx: commands.Context):
-        "Disconnects the bot from your voice channel and chears the queue."
+        "Disconnects the bot from your voice channel and clears the queue."
         player: voicelink.Player = ctx.guild.voice_client
         if not player:
             return await send(ctx, "noPlayer", ephemeral=True)
 
-        if not player.is_privileged(ctx.author):
-            if ctx.author in player.stop_votes:
-                return await send(ctx, "voted", ephemeral=True)
-            else:
-                player.stop_votes.add(ctx.author)
-                if len(player.stop_votes) >= (required := player.required(leave=True)):
-                    pass
-                else:
-                    return await send(ctx, "leaveVote", ctx.author, len(player.stop_votes), required)
+        # ONLY Discord admins may use /leave — DJs cannot
+        if not ctx.author.guild_permissions.administrator:
+            return await send(ctx, "missingFunctionPerm", ephemeral=True)
 
         await send(ctx, "left", ctx.author)
         await player.teardown()
