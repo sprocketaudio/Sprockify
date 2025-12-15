@@ -90,6 +90,9 @@ def open_json(path: str) -> dict:
     except:
         return {}
 
+
+settings = Settings(open_json("settings.json"))
+
 def update_json(path: str, new_data: dict) -> None:
     data = open_json(path)
     if not data:
