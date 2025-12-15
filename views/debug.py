@@ -99,7 +99,7 @@ class AddNodeModal(discord.ui.Modal):
                 "identifier": self.children[4].value
             }
         except Exception:
-            return await interaction.response.send_message("Some of your input is invalid! Please try again.", ephemeral=True)
+            return await func.send(interaction, "Some of your input is invalid! Please try again.", ephemeral=True)
         
         await interaction.response.defer()
         try:
@@ -108,11 +108,11 @@ class AddNodeModal(discord.ui.Modal):
                 logger=func.logger,
                 **config
             )
-            await interaction.followup.send(f"Node {self.children[4].value} is connected!", ephemeral=True)
+            await func.send(interaction, f"Node {self.children[4].value} is connected!", ephemeral=True)
             await self.view.message.edit(embed=self.view.build_embed(), view=self.view)
-            
+
         except Exception as e:
-            return await interaction.followup.send(e, ephemeral=True)
+            return await func.send(interaction, e, ephemeral=True)
         
 class CogsDropdown(discord.ui.Select):
     def __init__(self, bot: commands.Bot):
@@ -136,9 +136,9 @@ class CogsDropdown(discord.ui.Select):
             else:
                 await self.bot.reload_extension(f"cogs.{selected}")
         except Exception as e:
-            return await interaction.response.send_message(f"Unable to reload `{selected}`! Reason: {e}", ephemeral=True)
+            return await func.send(interaction, f"Unable to reload `{selected}`! Reason: {e}", ephemeral=True)
 
-        await interaction.response.send_message(f"Reloaded `{selected}` successfully!", ephemeral=True)
+        await func.send(interaction, f"Reloaded `{selected}` successfully!", ephemeral=True)
 
 class NodesDropdown(discord.ui.Select):
     def __init__(self, bot: commands.Bot):
@@ -170,7 +170,7 @@ class NodesDropdown(discord.ui.Select):
         selected_node = self.values[0]
         node = voicelink.NodePool._nodes.get(selected_node, None)
         if not node:
-            return await interaction.response.send_message("The node could not be found!", ephemeral=True)
+            return await func.send(interaction, "The node could not be found!", ephemeral=True)
         
         self.view.selected_node = node
         await interaction.response.defer()
@@ -241,7 +241,7 @@ class ExecutePanel(discord.ui.View):
         self.toggle_button("Error", True if self._error is None else False)
 
         if not self.message:
-            self.message = await interaction.followup.send(f"```{text}```", view=self, ephemeral=True)
+            self.message = await func.send(interaction, f"```{text}```", view=self, ephemeral=True)
         else:
             await self.message.edit(content=f"```{text}```", view=self)
 
@@ -309,7 +309,7 @@ class NodesPanel(discord.ui.View):
         return embed
     
     async def on_error(self, interaction: discord.Interaction, error, item) -> None:
-        return await interaction.followup.send(error, ephemeral=True)
+        return await func.send(interaction, error, ephemeral=True)
     
     @discord.ui.button(label="Add", emoji="➕", style=discord.ButtonStyle.green)
     async def add(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -319,15 +319,15 @@ class NodesPanel(discord.ui.View):
     @discord.ui.button(label="Remove", emoji="➖", style=discord.ButtonStyle.red, disabled=True)
     async def remove(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_node:
-            return await interaction.response.send_message("Please ensure that you have selected a node!", ephemeral=True)
+            return await func.send(interaction, "Please ensure that you have selected a node!", ephemeral=True)
 
         identifier = self.selected_node._identifier
         await self.selected_node.disconnect(remove_from_pool=True)
         
         self.selected_node = None
-        
+
         await self.message.edit(embed=self.build_embed(), view=self)
-        await interaction.response.send_message(f"Removed {identifier} Node from the bot.", ephemeral=True)
+        await func.send(interaction, f"Removed {identifier} Node from the bot.", ephemeral=True)
         
     @discord.ui.button(label="Reconnect", disabled=True, row=1)
     async def reconnect(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -371,18 +371,18 @@ class DebugView(discord.ui.View):
     
     @discord.ui.button(label='Cogs', emoji="⚙️")
     async def reload_cog(self, interaction: discord.Interaction, button: discord.ui.Button):
-        return await interaction.response.send_message("Reload Cogs", view=CogsView(self.bot), ephemeral=True)
-    
+        return await func.send(interaction, "Reload Cogs", view=CogsView(self.bot), ephemeral=True)
+
     @discord.ui.button(label="Re-Sync", emoji="🔄")
     async def sync(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("🔄 Synchronizing all your commands and language settings!", ephemeral=True)
+        await func.send(interaction, "🔄 Synchronizing all your commands and language settings!", ephemeral=True)
         await self.bot.tree.sync()
         await interaction.edit_original_response(content="✅ All commands and settings have been successfully synchronized!")
     
     @discord.ui.button(label="Nodes", emoji="📡")
     async def nodes(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = NodesPanel(self.bot)
-        await interaction.response.send_message(embed=view.build_embed(), view=view, ephemeral=True)
+        await func.send(interaction, embed=view.build_embed(), view=view, ephemeral=True)
         view.message = await interaction.original_response()
     
     @discord.ui.button(label="Stop-Bot", emoji="🔴")

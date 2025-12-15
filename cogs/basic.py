@@ -531,7 +531,7 @@ class Basic(commands.Cog):
         ) + temp
         temp += raw
 
-        await ctx.reply(content="", file=discord.File(StringIO(temp), filename=f"{ctx.guild.id}_Full_Queue.txt"))
+        await send(ctx, content="", file=discord.File(StringIO(temp), filename=f"{ctx.guild.id}_Full_Queue.txt"))
 
     @queue.command(name="import", aliases=get_aliases("import"))
     @commands.dynamic_cooldown(cooldown_check, commands.BucketType.guild)
