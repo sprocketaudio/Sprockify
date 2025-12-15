@@ -36,7 +36,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from logging.handlers import TimedRotatingFileHandler
 from addons import Settings
 
-
 class Translator(discord.app_commands.Translator):
     async def load(self):
         func.logger.info("Loaded Translator")
@@ -59,82 +58,45 @@ class Translator(discord.app_commands.Translator):
 
         return None
 
-
 class Vocard(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.ipc: IPCClient
 
     async def on_message(self, message: discord.Message, /) -> None:
         # Ignore messages from bots or DMs
         if message.author.bot or not message.guild:
-            return
+            return False
 
-        # If bot is mentioned directly
+        # Check if the bot is directly mentioned
         if message.content.strip() == self.user.mention and not message.mention_everyone:
             prefix = await self.command_prefix(self, message)
             if not prefix:
                 return await message.channel.send("I don't have a bot prefix set.")
             return await message.channel.send(f"My prefix is `{prefix}`")
 
-        # Fetch settings once
+        # Fetch guild settings and check if the mesage is in the music request channel
         settings = await func.get_settings(message.guild.id)
-        request_channel = settings.get("music_request_channel") if settings else None
+        if settings and (request_channel := settings.get("music_request_channel")):
+            if message.channel.id == request_channel.get("text_channel_id"):
+                ctx = await self.get_context(message)
+                try:
+                    cmd = self.get_command("play")
+                    if message.content:
+                        await cmd(ctx, query=message.content)
 
-        # Always-on debug logging
-        func.logger.debug(
-            f"[REQ-CHAN] guild={message.guild.id} "
-            f"chan={message.channel.id} "
-            f"req={request_channel!r}"
-        )
+                    elif message.attachments:
+                        for attachment in message.attachments:
+                            await cmd(ctx, query=attachment.url)
 
-        # If message is in the request-channel, treat it as a play command
-        if request_channel and message.channel.id == request_channel.get("text_channel_id"):
-            ctx = await self.get_context(message)
-            try:
-                cmd = self.get_command("play")
+                except Exception as e:
+                    await func.send(ctx, str(e), ephemeral=True)
 
-                if message.content:
-                    await cmd(ctx, query=message.content)
+                finally:
+                    return await message.delete()
 
-                elif message.attachments:
-                    for attachment in message.attachments:
-                        await cmd(ctx, query=attachment.url)
-
-            except Exception as e:
-                func.logger.exception(f"[REQ-CHAN] play handler error guild={message.guild.id}: {e}")
-                await func.send(ctx, str(e), ephemeral=True)
-
-            finally:
-                return await message.delete()
-
-        # Otherwise, normal command processing
         await self.process_commands(message)
-
-    async def on_message_delete(self, message: discord.Message) -> None:
-        # Only care about guild messages
-        if not message.guild:
-            return
-
-        # Only care about this bot's own messages
-        if message.author.id != self.user.id:
-            return
-
-        # Fetch settings to see if this was the controller message
-        settings = await func.get_settings(message.guild.id)
-        req = settings.get("music_request_channel") if settings else None
-        controller_id = req.get("controller_msg_id") if req else None
-
-        if controller_id and message.id == controller_id:
-            func.logger.warning(
-                f"[REQ-CHAN] Controller message DELETED in "
-                f"guild={message.guild.id} channel={message.channel.id} msg_id={message.id}"
-            )
-        else:
-            func.logger.debug(
-                f"[BOT-DEL] Bot message deleted in guild={message.guild.id} "
-                f"channel={message.channel.id} msg_id={message.id}"
-            )
 
     async def connect_db(self) -> None:
         if not ((db_name := func.settings.mongodb_name) and (db_url := func.settings.mongodb_url)):
@@ -161,7 +123,7 @@ class Vocard(commands.Bot):
         # Set translator
         await self.tree.set_translator(Translator())
 
-        # Load all cogs
+        # Loading all the module in `cogs` folder
         for module in os.listdir(func.ROOT_DIR + '/cogs'):
             if module.endswith('.py'):
                 try:
@@ -199,7 +161,6 @@ class Vocard(commands.Bot):
 
     async def on_command_error(self, ctx: commands.Context, exception, /) -> None:
         error = getattr(exception, 'original', exception)
-
         if ctx.interaction:
             error = getattr(error, 'original', error)
 
@@ -230,7 +191,6 @@ class Vocard(commands.Bot):
         except:
             pass
 
-
 class CommandCheck(discord.app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
         if interaction.type == discord.InteractionType.application_command:
@@ -242,9 +202,8 @@ class CommandCheck(discord.app_commands.CommandTree):
             if not channel_perm.read_messages or not channel_perm.send_messages:
                 await interaction.response.send_message("I don't have permission to read or send messages in this channel.")
                 return False
-
+            
         return True
-
 
 async def get_prefix(bot: commands.Bot, message: discord.Message) -> str:
     settings = await func.get_settings(message.guild.id)
@@ -256,8 +215,7 @@ async def get_prefix(bot: commands.Bot, message: discord.Message) -> str:
 
     return prefix
 
-
-# Load settings and logger
+# Loading settings and logger
 func.settings = Settings(func.open_json("settings.json"))
 
 LOG_SETTINGS = func.settings.logging
@@ -275,7 +233,7 @@ for log_name, log_level in LOG_SETTINGS.get("level", {}).items():
     _logger = logging.getLogger(log_name)
     _logger.setLevel(log_level)
 
-# Create bot
+# Setup the bot object
 intents = discord.Intents.default()
 intents.message_content = False if func.settings.bot_prefix is None else True
 intents.members = func.settings.ipc_client.get("enable", False)
