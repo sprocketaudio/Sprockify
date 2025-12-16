@@ -139,9 +139,11 @@ class Vocard(commands.Bot):
             except Exception as e:
                 func.logger.error(f"Cannot connected to dashboard! - Reason: {e}")
 
+        # Sync application commands so newly added commands are registered.
+        await self.tree.sync()
+
         # Update version tracking
         if not func.settings.version or func.settings.version != update.__version__:
-            await self.tree.sync()
             func.update_json("settings.json", new_data={"version": update.__version__})
             for locale_key, values in func.MISSING_TRANSLATOR.items():
                 func.logger.warning(f'Missing translation for "{", ".join(values)}" in "{locale_key}"')
