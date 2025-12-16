@@ -452,7 +452,7 @@ class Player(VoiceProtocol):
             try:
                 if self.is_connected and self.settings.get("controller", True) and self.channel:
                     # Only bother if there is something meaningful to show
-                    if self.current or self.queue.tracks():  # changed: avoid len(self.queue)
+                    if not self.controller or self.current or self.queue.tracks():  # changed: recreate if missing even when idle
                         await self.invoke_controller()
             except Exception as e:
                 if self._logger:
