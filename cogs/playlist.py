@@ -92,6 +92,13 @@ class Playlists(commands.Cog, name="playlist"):
         self.bot = bot
         self.description = "This is the Vocard playlist system. You can save your favorites and use Vocard to play on any server."
 
+    async def _add_track_with_duplicate_notice(self, ctx, coro):
+        try:
+            return await coro
+        except voicelink.exceptions.DuplicateTrack as error:
+            await send(ctx, str(error))
+            return None
+
     async def playlist_autocomplete(self, interaction: discord.Interaction, current: str) -> list:
         playlists_raw: dict[str, dict] = await get_user(interaction.user.id, 'playlist')
         playlists = [value['name'] for value in playlists_raw.values()] if playlists_raw else []
@@ -147,8 +154,9 @@ class Playlists(commands.Cog, name="playlist"):
 
         if value and 0 < value <= (len(tracks['tracks'])):
             tracks['tracks'] = [tracks['tracks'][value - 1]]
-        await player.add_track(tracks['tracks'])
-        await send(ctx, 'playlistPlay', result['playlist']['name'], len(tracks['tracks'][:max_t]))
+        index = await self._add_track_with_duplicate_notice(ctx, player.add_track(tracks['tracks']))
+        if index is not None:
+            await send(ctx, 'playlistPlay', result['playlist']['name'], len(tracks['tracks'][:max_t]))
 
         if not player.is_playing:
             await player.do_next()

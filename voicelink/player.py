@@ -450,10 +450,17 @@ class Player(VoiceProtocol):
         await sleep(10)
         while True:
             try:
-                if self.is_connected and self.settings.get("controller", True) and self.channel:
-                    # Only bother if there is something meaningful to show
-                    if not self.controller or self.current or self.queue.tracks():  # changed: recreate if missing even when idle
-                        await self.invoke_controller()
+                if self.settings.get("controller", True):
+                    request_channel_data = self.settings.get("music_request_channel")
+                    channel = self.bot.get_channel(request_channel_data.get("text_channel_id")) if request_channel_data else None
+
+                    if channel:
+                        controller_missing = not self.controller
+                        queue_active = self.current or self.queue.tracks()
+                        controller_stale = self.controller and not await self.is_position_fresh()
+
+                        if controller_missing or queue_active or controller_stale:
+                            await self.invoke_controller(channel_override=channel)
             except Exception as e:
                 if self._logger:
                     self._logger.error(
@@ -462,12 +469,12 @@ class Player(VoiceProtocol):
                     )
             await sleep(10)
 
-    async def invoke_controller(self):
+    async def invoke_controller(self, *, channel_override=None):
         """Sends or updates the music controller message in the designated channel."""
         if not self.settings.get('controller', True):
             return
 
-        if self._updating or not self.channel:
+        if self._updating:
             return
 
         self._updating = True
@@ -475,7 +482,7 @@ class Player(VoiceProtocol):
         try:
             embed, view = self.build_embed(self.current), InteractiveController(self)
             request_channel_data = self.settings.get("music_request_channel")
-            channel = self.bot.get_channel(request_channel_data.get("text_channel_id")) if request_channel_data else None
+            channel = channel_override or (self.bot.get_channel(request_channel_data.get("text_channel_id")) if request_channel_data else None)
 
             if not channel:
                 return
