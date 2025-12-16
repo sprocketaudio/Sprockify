@@ -142,6 +142,14 @@ class Vocard(commands.Bot):
         # Sync application commands so newly added commands are registered.
         await self.tree.sync()
 
+        # Also push guild-specific syncs so new commands propagate immediately
+        # instead of waiting for global command caches to refresh.
+        for guild in self.guilds:
+            try:
+                await self.tree.sync(guild=guild)
+            except Exception as e:
+                func.logger.warning(f"Failed to sync commands for guild {guild.id}: {e}")
+
         # Update version tracking
         if not func.settings.version or func.settings.version != update.__version__:
             func.update_json("settings.json", new_data={"version": update.__version__})
