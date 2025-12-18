@@ -450,10 +450,17 @@ class Player(VoiceProtocol):
         await sleep(10)
         while True:
             try:
-                if self.is_connected and self.settings.get("controller", True) and self.channel:
-                    # Only bother if there is something meaningful to show
-                    if self.current or self.queue.tracks():  # changed: avoid len(self.queue)
-                        await self.invoke_controller()
+                if self.settings.get("controller", True):
+                    request_channel_data = self.settings.get("music_request_channel")
+                    channel = self.bot.get_channel(request_channel_data.get("text_channel_id")) if request_channel_data else None
+
+                    if channel:
+                        controller_missing = not self.controller
+                        queue_active = self.current or self.queue.tracks()
+                        controller_stale = self.controller and not await self.is_position_fresh()
+
+                        if controller_missing or queue_active or controller_stale:
+                            await self.invoke_controller(channel_override=channel)
             except Exception as e:
                 if self._logger:
                     self._logger.error(
@@ -462,47 +469,84 @@ class Player(VoiceProtocol):
                     )
             await sleep(10)
 
-    async def invoke_controller(self):
+    async def invoke_controller(self, *, channel_override=None):
         """Sends or updates the music controller message in the designated channel."""
         if not self.settings.get('controller', True):
             return
-        
-        if self._updating or not self.channel:
+
+        if self._updating:
             return
-        
+
         self._updating = True
 
-        try:            
+        try:
             embed, view = self.build_embed(self.current), InteractiveController(self)
+            request_channel_data = self.settings.get("music_request_channel")
+            channel = channel_override or (self.bot.get_channel(request_channel_data.get("text_channel_id")) if request_channel_data else None)
+
+            if not channel:
+                return
+
             if not self.controller:
-                if request_channel_data := self.settings.get("music_request_channel"):
-                    channel = self.bot.get_channel(request_channel_data.get("text_channel_id"))
-                    if channel:
-                        try:
-                            self.controller = await channel.fetch_message(request_channel_data.get("controller_msg_id"))
-                            await self.controller.edit(embed=embed, view=view)
-                        except errors.NotFound:
-                            self.controller = None
-                
-                # Send a new controller message if none exists
-                if not self.controller:
-                    self.controller = await func.send(self.context, content=embed, view=view, requires_fetch=True)
+                await self.ensure_controller(embed, view, channel)
 
             elif not await self.is_position_fresh():
-                await self.controller.delete()
-                self.controller = await func.send(self.context, content=embed, view=view, requires_fetch=True)
+                await self.safe_delete_controller()
+                await self.ensure_controller(embed, view, channel)
 
             else:
-                await self.controller.edit(embed=embed, view=view)
-        
+                try:
+                    await self.controller.edit(embed=embed, view=view)
+                except errors.NotFound:
+                    self.controller = None
+                    await self.ensure_controller(embed, view, channel)
+
         except errors.Forbidden:
             self._logger.warning(f"Missing permission to update the music controller on {self.guild.name}({self.guild.id})")
 
         except Exception as e:
             self._logger.error(f"Something went wrong while sending music controller to {self.guild.name}({self.guild.id})", exc_info=e)
-        
+
         finally:
             self._updating = False
+
+    async def ensure_controller(self, embed, view, channel=None):
+        if not (request_channel_data := self.settings.get("music_request_channel")):
+            return
+
+        channel = channel or self.bot.get_channel(request_channel_data.get("text_channel_id"))
+        if not channel:
+            return
+
+        controller_id = request_channel_data.get("controller_msg_id")
+        if controller_id:
+            try:
+                self.controller = await channel.fetch_message(controller_id)
+            except errors.NotFound:
+                self.controller = None
+
+        if not self.controller:
+            self.controller = await channel.send(
+                embed=embed,
+                view=view,
+                allowed_mentions=func.ALLOWED_MENTIONS,
+                silent=self.settings.get("silent_msg", False)
+            )
+            await func.update_settings(self.guild.id, {"$set": {"music_request_channel.controller_msg_id": self.controller.id}})
+            self.settings.setdefault("music_request_channel", {})["controller_msg_id"] = self.controller.id
+        else:
+            await self.controller.edit(embed=embed, view=view)
+
+    async def safe_delete_controller(self):
+        if not self.controller:
+            return
+
+        try:
+            await self.controller.delete()
+        except errors.NotFound:
+            pass
+        finally:
+            self.controller = None
 
     async def is_position_fresh(self):
         """Checks if the current controller message is among the most recent messages."""
@@ -543,9 +587,12 @@ class Player(VoiceProtocol):
         try:
             await self.update_voice_status(remove_status=True)
             if self.controller and self.controller.id == self.settings.get("music_request_channel", {}).get("controller_msg_id"):
-                await self.controller.edit(embed=self.build_embed(), view=None)
-            else:    
-                await self.controller.delete()
+                try:
+                    await self.controller.edit(embed=self.build_embed(), view=None)
+                except errors.NotFound:
+                    self.controller = None
+            else:
+                await self.safe_delete_controller()
         except:
             pass
 

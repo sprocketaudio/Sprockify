@@ -79,6 +79,13 @@ class Basic(commands.Cog):
         )
         self.bot.tree.add_command(self.ctx_menu)
 
+    async def _add_track_with_duplicate_notice(self, ctx, coro):
+        try:
+            return await coro
+        except voicelink.exceptions.DuplicateTrack as error:
+            await send(ctx, str(error))
+            return None
+
     async def cog_unload(self) -> None:
         self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
 
@@ -144,10 +151,21 @@ class Basic(commands.Cog):
 
         try:
             if isinstance(tracks, voicelink.Playlist):
-                index = await player.add_track(tracks.tracks, start_time=format_time(start), end_time=format_time(end))
+                index = await self._add_track_with_duplicate_notice(
+                    ctx,
+                    player.add_track(tracks.tracks, start_time=format_time(start), end_time=format_time(end))
+                )
+                if index is None:
+                    return
+
                 await send(ctx, "playlistLoad", tracks.name, index)
             else:
-                position = await player.add_track(tracks[0], start_time=format_time(start), end_time=format_time(end))
+                position = await self._add_track_with_duplicate_notice(
+                    ctx,
+                    player.add_track(tracks[0], start_time=format_time(start), end_time=format_time(end))
+                )
+                if position is None:
+                    return
                 texts = await get_lang(ctx.guild.id, "live", "trackLoad_pos", "trackLoad")
 
                 stream_content = f"`{texts[0]}`" if tracks[0].is_stream else ""
@@ -192,10 +210,17 @@ class Basic(commands.Cog):
 
         try:
             if isinstance(tracks, voicelink.Playlist):
-                index = await player.add_track(tracks.tracks)
+                index = await self._add_track_with_duplicate_notice(
+                    interaction,
+                    player.add_track(tracks.tracks)
+                )
+                if index is None:
+                    return
                 await send(interaction, "playlistLoad", tracks.name, index)
             else:
-                position = await player.add_track(tracks[0])
+                position = await self._add_track_with_duplicate_notice(interaction, player.add_track(tracks[0]))
+                if position is None:
+                    return
                 texts = await get_lang(interaction.guild.id, "live", "trackLoad_pos", "trackLoad")
 
                 stream_content = f"`{texts[0]}`" if tracks[0].is_stream else ""
@@ -249,7 +274,9 @@ class Basic(commands.Cog):
             msg = ""
             for value in view.values:
                 track = tracks[int(value.split(". ")[0]) - 1]
-                position = await player.add_track(track)
+                position = await self._add_track_with_duplicate_notice(ctx, player.add_track(track))
+                if position is None:
+                    continue
                 msg += (f"`{texts[2]}`" if track.is_stream else "") + (texts[3].format(track.title, track.uri, track.author, track.formatted_length, position) if position >= 1 else texts[4].format(track.title, track.uri, track.author, track.formatted_length))
             await send(ctx, msg)
 
@@ -282,10 +309,20 @@ class Basic(commands.Cog):
         
         try:
             if isinstance(tracks, voicelink.Playlist):
-                index = await player.add_track(tracks.tracks, start_time=format_time(start), end_time=format_time(end), at_front=True)
+                index = await self._add_track_with_duplicate_notice(
+                    ctx,
+                    player.add_track(tracks.tracks, start_time=format_time(start), end_time=format_time(end), at_front=True)
+                )
+                if index is None:
+                    return
                 await send(ctx, "playlistLoad", tracks.name, index)
             else:
-                position = await player.add_track(tracks[0], start_time=format_time(start), end_time=format_time(end), at_front=True)
+                position = await self._add_track_with_duplicate_notice(
+                    ctx,
+                    player.add_track(tracks[0], start_time=format_time(start), end_time=format_time(end), at_front=True)
+                )
+                if position is None:
+                    return
                 texts = await get_lang(ctx.guild.id, "live", "trackLoad_pos", "trackLoad")
 
                 stream_content = f"`{texts[0]}`" if tracks[0].is_stream else ""
@@ -326,11 +363,21 @@ class Basic(commands.Cog):
         
         try:
             if isinstance(tracks, voicelink.Playlist):
-                index = await player.add_track(tracks.tracks, start_time=format_time(start), end_time=format_time(end), at_front=True)
+                index = await self._add_track_with_duplicate_notice(
+                    ctx,
+                    player.add_track(tracks.tracks, start_time=format_time(start), end_time=format_time(end), at_front=True)
+                )
+                if index is None:
+                    return
                 await send(ctx, "playlistLoad", tracks.name, index)
             else:
                 texts = await get_lang(ctx.guild.id, "live", "trackLoad")
-                await player.add_track(tracks[0], start_time=format_time(start), end_time=format_time(end), at_front=True)
+                added_position = await self._add_track_with_duplicate_notice(
+                    ctx,
+                    player.add_track(tracks[0], start_time=format_time(start), end_time=format_time(end), at_front=True)
+                )
+                if added_position is None:
+                    return
 
                 stream_content = f"`{texts[0]}`" if tracks[0].is_stream else ""
 
@@ -531,7 +578,7 @@ class Basic(commands.Cog):
         ) + temp
         temp += raw
 
-        await ctx.reply(content="", file=discord.File(StringIO(temp), filename=f"{ctx.guild.id}_Full_Queue.txt"))
+        await send(ctx, content="", file=discord.File(StringIO(temp), filename=f"{ctx.guild.id}_Full_Queue.txt"))
 
     @queue.command(name="import", aliases=get_aliases("import"))
     @commands.dynamic_cooldown(cooldown_check, commands.BucketType.guild)
@@ -553,8 +600,9 @@ class Basic(commands.Cog):
             if not tracks:
                 return await send(ctx, "noTrackFound")
 
-            index = await player.add_track(tracks)
-            await send(ctx, "playlistLoad", attachment.filename, index)
+            index = await self._add_track_with_duplicate_notice(ctx, player.add_track(tracks))
+            if index is not None:
+                await send(ctx, "playlistLoad", attachment.filename, index)
         except Exception as e:
             logger.error("error", exc_info=e)
             raise e

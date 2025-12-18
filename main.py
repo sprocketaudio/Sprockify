@@ -73,8 +73,8 @@ class Vocard(commands.Bot):
         if message.content.strip() == self.user.mention and not message.mention_everyone:
             prefix = await self.command_prefix(self, message)
             if not prefix:
-                return await message.channel.send("I don't have a bot prefix set.")
-            return await message.channel.send(f"My prefix is `{prefix}`")
+                return await func.send(message, "I don't have a bot prefix set.")
+            return await func.send(message, f"My prefix is `{prefix}`")
 
         # Fetch guild settings and check if the mesage is in the music request channel
         settings = await func.get_settings(message.guild.id)
@@ -139,9 +139,19 @@ class Vocard(commands.Bot):
             except Exception as e:
                 func.logger.error(f"Cannot connected to dashboard! - Reason: {e}")
 
+        # Sync application commands so newly added commands are registered.
+        await self.tree.sync()
+
+        # Also push guild-specific syncs so new commands propagate immediately
+        # instead of waiting for global command caches to refresh.
+        for guild in self.guilds:
+            try:
+                await self.tree.sync(guild=guild)
+            except Exception as e:
+                func.logger.warning(f"Failed to sync commands for guild {guild.id}: {e}")
+
         # Update version tracking
         if not func.settings.version or func.settings.version != update.__version__:
-            await self.tree.sync()
             func.update_json("settings.json", new_data={"version": update.__version__})
             for locale_key, values in func.MISSING_TRANSLATOR.items():
                 func.logger.warning(f'Missing translation for "{", ".join(values)}" in "{locale_key}"')
@@ -180,14 +190,14 @@ class Vocard(commands.Bot):
 
             embed = discord.Embed(description=description, color=func.settings.embed_color)
             embed.set_footer(icon_url=ctx.me.display_avatar.url, text=f"More Help: {func.settings.invite_link}")
-            return await ctx.reply(embed=embed)
+            return await func.send(ctx, embed=embed)
 
         elif not issubclass(error.__class__, voicelink.VoicelinkException):
             error = await func.get_lang(ctx.guild.id, "unknownException") + func.settings.invite_link
             func.logger.error(f"An unexpected error occurred in the {ctx.command.name} command on the {ctx.guild.name}({ctx.guild.id}).", exc_info=exception)
 
         try:
-            return await ctx.reply(error, ephemeral=True)
+            return await func.send(ctx, error, ephemeral=True)
         except:
             pass
 
@@ -195,12 +205,12 @@ class CommandCheck(discord.app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
         if interaction.type == discord.InteractionType.application_command:
             if not interaction.guild:
-                await interaction.response.send_message("This command can only be used in guilds!")
+                await func.send(interaction, "This command can only be used in guilds!")
                 return False
 
             channel_perm = interaction.channel.permissions_for(interaction.guild.me)
             if not channel_perm.read_messages or not channel_perm.send_messages:
-                await interaction.response.send_message("I don't have permission to read or send messages in this channel.")
+                await func.send(interaction, "I don't have permission to read or send messages in this channel.")
                 return False
             
         return True

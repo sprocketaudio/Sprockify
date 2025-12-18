@@ -90,6 +90,9 @@ def open_json(path: str) -> dict:
     except:
         return {}
 
+
+settings = Settings(open_json("settings.json"))
+
 def update_json(path: str, new_data: dict) -> None:
     data = open_json(path)
     if not data:
@@ -187,51 +190,63 @@ async def get_lang(guild_id:int, *keys) -> Optional[Union[list[str], str]]:
     return [LANGS.get(lang, {}).get(key) for key in keys]
 
 async def send(
-    ctx: Union[commands.Context, discord.Interaction],
+    ctx: Union[commands.Context, discord.Interaction, discord.Message, TempCtx],
     content: Union[str, discord.Embed] = None,
     *params,
+    embed: discord.Embed = None,
     view: discord.ui.View = None,
     delete_after: float = None,
     ephemeral: bool = False,
-    requires_fetch: bool = False
+    requires_fetch: bool = False,
+    allow_auto_delete: bool = True,
+    **kwargs
 ) -> Optional[discord.Message]:
-    if content is None:
+    if content is None and embed is None:
         content = "No content provided."
 
-    # Determine the text to send
-    if isinstance(content, discord.Embed):
+    if isinstance(content, discord.Embed) and embed is None:
         embed = content
-        text = None
-    else:
+        content = None
+
+    # Determine the text to send
+    text = None
+    if isinstance(content, str):
         text = await get_lang(ctx.guild.id, content)
         if text:
             text = text.format(*params)
         else:
             text = content.format(*params)
-        embed = None
-        
+
+    channel = getattr(ctx, "channel", None)
+    destination_channel_id = getattr(channel, "id", None)
+
     # Determine the sending function
     send_func = (
         ctx.send if isinstance(ctx, commands.Context) else
         ctx.channel.send if isinstance(ctx, TempCtx) else
-        ctx.followup.send if ctx.response.is_done() else
-        ctx.response.send_message
+        ctx.followup.send if isinstance(ctx, discord.Interaction) and ctx.response.is_done() else
+        ctx.response.send_message if isinstance(ctx, discord.Interaction) else
+        channel.send
     )
 
     # Check settings for delete_after duration
     settings = await get_settings(ctx.guild.id)
+    request_channel_id = settings.get("music_request_channel", {}).get("text_channel_id")
+    auto_delete = allow_auto_delete and not ephemeral and request_channel_id and destination_channel_id == request_channel_id
+
     send_kwargs = {
         "content": text,
         "embed": embed,
         "allowed_mentions": ALLOWED_MENTIONS,
         "silent": settings.get("silent_msg", False),
+        **kwargs
     }
-    
+
     if "delete_after" in send_func.__code__.co_varnames:
-        if settings and ctx.channel.id == settings.get("music_request_channel", {}).get("text_channel_id"):
-            delete_after = 10
-        send_kwargs["delete_after"] = delete_after
-    
+        delete_after = delete_after if delete_after is not None else (20 if auto_delete else None)
+        if delete_after is not None:
+            send_kwargs["delete_after"] = delete_after
+
     if "ephemeral" in send_func.__code__.co_varnames:
         send_kwargs["ephemeral"] = ephemeral
 
@@ -243,7 +258,7 @@ async def send(
 
     if isinstance(message, discord.InteractionCallbackResponse):
         message = message.resource
-    
+
     if requires_fetch and isinstance(message, (discord.WebhookMessage, discord.InteractionMessage)):
         message = await message.fetch()
 

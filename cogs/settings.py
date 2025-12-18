@@ -298,10 +298,22 @@ class Settings(commands.Cog, name="settings"):
         }}})
         await send(ctx, "createSongRequestChannel", channel.mention)
 
+    @settings.command(name="unsetchannel", aliases=get_aliases("unsetchannel"))
+    @commands.has_permissions(manage_guild=True)
+    @commands.dynamic_cooldown(cooldown_check, commands.BucketType.guild)
+    async def unsetchannel(self, ctx: commands.Context):
+        "Clears the configured music request channel for this server."
+        settings = await get_settings(ctx.guild.id)
+        if not settings.get("music_request_channel"):
+            return await send(ctx, "No music request channel is currently set.", ephemeral=True)
+
+        await update_settings(ctx.guild.id, {"$unset": {"music_request_channel": ""}})
+        await send(ctx, "Music request channel has been cleared.")
+
     @app_commands.command(name="debug")
     async def debug(self, interaction: discord.Interaction):
         if interaction.user.id not in func.settings.bot_access_user:
-            return await interaction.response.send_message("You are not able to use this command!")
+            return await func.send(interaction, "You are not able to use this command!")
 
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage(func.ROOT_DIR)
@@ -344,7 +356,7 @@ class Settings(commands.Cog, name="settings"):
                         f"• PLAYERS: {len(node._players)}\nNo extra data is available for display```",
                 )
 
-        await interaction.response.send_message(embed=embed, view=DebugView(self.bot), ephemeral=True)
+        await func.send(interaction, embed=embed, view=DebugView(self.bot), ephemeral=True)
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Settings(bot))

@@ -285,7 +285,7 @@ class EmbedBuilderView(discord.ui.View):
             data["fields"] = []
 
         if len(data["fields"]) >= 25:
-            return await interaction.response.send_message("You have already reached the maximum of fields!", ephemeral=True)
+            return await func.send(interaction, "You have already reached the maximum of fields!", ephemeral=True)
         
         modal = Modal(items, title="Add Field")
         await interaction.response.send_modal(modal)
@@ -315,7 +315,7 @@ class EmbedBuilderView(discord.ui.View):
             data["fields"] = []
 
         if len(data["fields"]) == 0:
-            return await interaction.response.send_message("There are no fields to remove!", ephemeral=True)
+            return await func.send(interaction, "There are no fields to remove!", ephemeral=True)
         
         modal = Modal(items, title="Remove Field")
         await interaction.response.send_modal(modal)
@@ -324,7 +324,7 @@ class EmbedBuilderView(discord.ui.View):
         try:
             del data["fields"][int(modal.values["index"])]
         except:
-            return await interaction.followup.send("Can't found the field", ephemeral=True)
+            return await func.send(interaction, "Can't found the field", ephemeral=True)
         
         return await interaction.edit_original_response(embed=self.build_embed())
 
